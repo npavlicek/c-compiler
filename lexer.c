@@ -238,18 +238,15 @@ void emit_token(TokenData *buf, int tok)
 	buf->_tok_idx++;
 }
 
-void emit_char_literal(TokenData *buf, unsigned char chr)
+void emit_char_literal(TokenData *buf, char chr)
 {
 	emit_token(buf, TOK_CONSTANT_CHAR);
-	if (isgraph(chr))
-	{
-		printf("\n\nEmitting: %c\n\n", chr);
-	}
-	else
-	{
-		printf("\n\nEmitting: %d\n\n", chr);
-	}
 	emit_token(buf, chr);
+}
+
+void print_error(int line, const char *message)
+{
+	printf("[Line %d] Error: %s\n", line, message);
 }
 
 TokenData *tokenize(CharBuffer *cb)
@@ -281,6 +278,7 @@ TokenData *tokenize(CharBuffer *cb)
 		{
 			if (cb->cur_char != '\'')
 			{
+				printf("CURRENT CHAR: %c\n", cb->cur_char);
 				printf("Error: char literals cannot be longer than one character. Line: %d\n", current_line);
 				return NULL;
 			}
@@ -311,7 +309,6 @@ TokenData *tokenize(CharBuffer *cb)
 		if (isspace(cb->cur_char))
 			continue;
 
-		// TODO: ALLOW SHORTER OCT VALUES such as 33 instead of 330
 		// TODO: implement char literal prefixes
 
 		// char literal mode
@@ -324,35 +321,40 @@ TokenData *tokenize(CharBuffer *cb)
 				cb_next(cb);
 				if (cb->next_char == 'x')
 				{
-					unsigned char char_digits[2];
 					int hex_digits[2];
+					int num_digits = 0;
 
-					cb_next(cb);
-					char_digits[0] = tolower(cb->next_char);
-					cb_next(cb);
-					char_digits[1] = tolower(cb->next_char);
-
-					if (isalpha(char_digits[0]))
-						hex_digits[0] = char_digits[0] - 'a' + 10;
-					else
-						hex_digits[0] = char_digits[0] - '0';
-
-					if (isalpha(char_digits[1]))
-						hex_digits[1] = char_digits[1] - 'a' + 10;
-					else
-						hex_digits[1] = char_digits[1] - '0';
-
-					// check each digit
 					for (int i = 0; i < 2; i++)
 					{
-						if (hex_digits[i] > 15 || hex_digits[i] < 0)
+						cb_next(cb);
+						if (isxdigit(cb->next_char))
 						{
-							printf("Error: invalid hex escape sequence. Line: %d\n", current_line);
-							return NULL;
+							if (isalpha(cb->next_char))
+								hex_digits[i] = tolower(cb->next_char) - 'a' + 10;
+							else
+								hex_digits[i] = cb->next_char - '0';
+							num_digits++;
+						}
+						else
+						{
+							cb_back(cb);
 						}
 					}
 
-					int final_val = hex_digits[0] * 16 + hex_digits[1];
+					if (num_digits == 0)
+					{
+						print_error(current_line, "hex escape character not followed by hex digits");
+						return NULL;
+					}
+
+					int final_val = 0;
+					int powers_of_16[] = {1, 16};
+					int powers_idx = 0;
+					for (int i = num_digits - 1; i >= 0; i--)
+					{
+						final_val += hex_digits[i] * powers_of_16[powers_idx];
+						powers_idx++;
+					}
 
 					if (final_val > 255 || final_val < 0)
 					{
@@ -365,25 +367,35 @@ TokenData *tokenize(CharBuffer *cb)
 				else if (isdigit(cb->next_char))
 				{
 					int oct_digits[3];
-
-					oct_digits[0] = cb->next_char - '0';
-
-					cb_next(cb);
-					oct_digits[1] = cb->next_char - '0';
-
-					cb_next(cb);
-					oct_digits[2] = cb->next_char - '0';
+					int num_digits = 0;
 
 					for (int i = 0; i < 3; i++)
 					{
-						if (oct_digits[i] > 7 || oct_digits[i] < 0)
+						if (i != 0)
+							cb_next(cb);
+						oct_digits[i] = cb->next_char - '0';
+						if (oct_digits[i] < 0 || oct_digits[i] > 7)
 						{
-							printf("Error: invalid oct escape sequence. Line: %d\n", current_line);
-							return NULL;
+							cb_back(cb);
+							break;
 						}
+						num_digits++;
 					}
 
-					int final_val = oct_digits[0] * 64 + oct_digits[1] * 8 + oct_digits[2];
+					if (num_digits == 0)
+					{
+						print_error(current_line, "oct escape character not followed by any octal digits");
+						return NULL;
+					}
+
+					int final_val = 0;
+					int powers_of_8[] = {1, 8, 64};
+					int powers_idx = 0;
+					for (int i = num_digits - 1; i >= 0; i--)
+					{
+						final_val += oct_digits[i] * powers_of_8[powers_idx];
+						powers_idx++;
+					}
 
 					if (final_val > 255 || final_val < 0)
 					{
