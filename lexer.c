@@ -5,20 +5,127 @@
 
 #include "lexer.h"
 
-typedef struct CharBuffer
+// clang-format off
+// The string representation of keywords
+static const char *const keywords_str[] = 
 {
-	char *_buf;
-	int _cur_idx;
+	"auto",
+	"break",
+	"case",
+	"char",
+	"const",
+	"continue",
+	"default",
+	"do",
+	"double",
+	"else",
+	"enum",
+	"float",
+	"for",
+	"goto",
+	"if",
+	"inline",
+	"int",
+	"long",
+	"return",
+	"short",
+	"signed",
+	"sizeof",
+	"static",
+	"typedef",
+	"union",
+	"unsigned",
+	"void",
+	"while"
+};
 
-	int _max_size;
-	int _size;
+// The token equivalent of each element in keywords_str
+static const enum Token keywords_tok[] = 
+{
+	TOK_AUTO,
+	TOK_BREAK,
+	TOK_CASE,
+	TOK_CHAR,
+	TOK_CONST,
+	TOK_CONTINUE,
+	TOK_DEFAULT,
+	TOK_DO,
+	TOK_DOUBLE,
+	TOK_ELSE,
+	TOK_ENUM,
+	TOK_FLOAT,
+	TOK_FOR,
+	TOK_GOTO,
+	TOK_IF,
+	TOK_INLINE,
+	TOK_INT,
+	TOK_LONG,
+	TOK_RETURN,
+	TOK_SHORT,
+	TOK_SIGNED,
+	TOK_SIZEOF,
+	TOK_STATIC,
+	TOK_TYPEDEF,
+	TOK_UNION,
+	TOK_UNSIGNED,
+	TOK_VOID,
+	TOK_WHILE
+};
 
-	// end-of-buffer
-	int eob;
+static const char single_punctuator_char[] = 
+{
+		'[',
+		']',
+		'(',
+		')',
+		'{',
+		'}',
+		'.',
+		'&',
+		'*',
+		'+',
+		'-',
+		'~',
+		'!',
+		'/',
+		'%',
+		'<',
+		'>',
+		'^',
+		'|',
+		':',
+		';',
+		'=',
+		',',
+};
 
-	char cur_char;
-	char next_char;
-} CharBuffer;
+static const enum Token single_punctuator_tok[] =
+{
+		TOK_OPEN_SQR_BRACK,
+		TOK_CLOSE_SQR_BRACK,
+		TOK_OPEN_PAREN,
+		TOK_CLOSE_PAREN,
+		TOK_OPEN_BRACK,
+		TOK_CLOSE_BRACK,
+		TOK_PERIOD,
+		TOK_AMPERSAND,
+		TOK_STAR,
+		TOK_PLUS,
+		TOK_MINUS,
+		TOK_TILDE,
+		TOK_BANG,
+		TOK_FORWARD_SLASH,
+		TOK_PERCENT,
+		TOK_LSS,
+		TOK_GTR,
+		TOK_CARET,
+		TOK_PIPE,
+		TOK_COLON,
+		TOK_SEMI_COLON,
+		TOK_EQUAL,
+		TOK_COMMA
+};
+// clang-format on
 
 CharBuffer *make_char_buffer(int max_size)
 {
@@ -36,7 +143,7 @@ void delete_char_buffer(CharBuffer *cb)
 	free(cb);
 }
 
-int cb_next(CharBuffer *cb)
+static int cb_next(CharBuffer *cb)
 {
 	if (cb->eob)
 		return 0;
@@ -63,7 +170,7 @@ int cb_next(CharBuffer *cb)
 	return 1;
 }
 
-int cb_back(CharBuffer *cb)
+static int cb_back(CharBuffer *cb)
 {
 	if (cb->eob)
 		return 0;
@@ -79,7 +186,7 @@ int cb_back(CharBuffer *cb)
 }
 
 // Returns -1 if theres no match, otherwise the token
-int is_keyword(const char *const str)
+static int is_keyword(const char *const str)
 {
 	for (int i = 0; i < sizeof(keywords_str) / sizeof(char *); i++)
 	{
@@ -92,7 +199,7 @@ int is_keyword(const char *const str)
 }
 
 // return -1 if no match
-int is_punctuator(CharBuffer *cb)
+static int is_punctuator(CharBuffer *cb)
 {
 	char f = cb->cur_char;
 	char s = cb->next_char;
@@ -138,29 +245,7 @@ int is_punctuator(CharBuffer *cb)
 	return -1;
 }
 
-typedef struct TokenData
-{
-	int _overflow;
-
-	int _buf_max_size;
-	int _str_max_size;
-
-	int _tok_idx;
-	int _ident_idx;
-	int _str_lit_idx;
-	int _int_const_idx;
-	int _float_const_idx;
-
-	int *tokens;
-
-	char **identifiers;
-	char **string_literals;
-
-	int *integer_constants;
-	float *floating_constants;
-} TokenData;
-
-TokenData *alloc_token_data(int buf_max_size, int str_max_size)
+static TokenData *alloc_token_data(int buf_max_size, int str_max_size)
 {
 	TokenData *res = calloc(1, sizeof(TokenData));
 	res->_buf_max_size = buf_max_size;
@@ -193,7 +278,7 @@ void free_token_data(TokenData *td)
 	free(td);
 }
 
-char get_escaped_char(char chr)
+static char get_escaped_char(char chr)
 {
 	switch (chr)
 	{
@@ -226,7 +311,7 @@ char get_escaped_char(char chr)
 	}
 }
 
-void emit_token(TokenData *buf, int tok)
+static void emit_token(TokenData *buf, int tok)
 {
 	if (buf->_tok_idx >= buf->_buf_max_size)
 	{
@@ -238,19 +323,127 @@ void emit_token(TokenData *buf, int tok)
 	buf->_tok_idx++;
 }
 
-void emit_char_literal(TokenData *buf, char chr)
+static void emit_char_literal(TokenData *buf, char chr)
 {
 	emit_token(buf, TOK_CONSTANT_CHAR);
 	emit_token(buf, chr);
 }
 
-void print_error(int line, const char *message)
+static int current_line = 0;
+
+static void print_error(const char *message)
 {
-	printf("[Line %d] Error: %s\n", line, message);
+	printf("[Line %d] Error: %s\n", current_line, message);
+}
+
+// returns anything other than zero if an error is present
+// function assumes the current char is the backslash that enters the escape sequence
+static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_data)
+{
+	if (cb->next_char == 'x')
+	{
+		int hex_digits[2];
+		int num_digits = 0;
+
+		for (int i = 0; i < 2; i++)
+		{
+			cb_next(cb);
+			if (isxdigit(cb->next_char))
+			{
+				if (isalpha(cb->next_char))
+					hex_digits[i] = tolower(cb->next_char) - 'a' + 10;
+				else
+					hex_digits[i] = cb->next_char - '0';
+				num_digits++;
+			}
+			else
+		{
+				cb_back(cb);
+			}
+		}
+
+		if (num_digits == 0)
+		{
+			print_error("hex escape character not followed by hex digits");
+			return 1;
+		}
+
+		int final_val = 0;
+		int powers_of_16[] = {1, 16};
+		int powers_idx = 0;
+		for (int i = num_digits - 1; i >= 0; i--)
+		{
+			final_val += hex_digits[i] * powers_of_16[powers_idx];
+			powers_idx++;
+		}
+
+		if (final_val > 255 || final_val < 0)
+		{
+			print_error("hex escape sequence out of range.");
+			return 1;
+		}
+
+		*res = final_val;
+	}
+	else if (isdigit(cb->next_char))
+	{
+		int oct_digits[3];
+		int num_digits = 0;
+
+		for (int i = 0; i < 3; i++)
+		{
+			if (i != 0)
+				cb_next(cb);
+			oct_digits[i] = cb->next_char - '0';
+			if (oct_digits[i] < 0 || oct_digits[i] > 7)
+			{
+				cb_back(cb);
+				break;
+			}
+			num_digits++;
+		}
+
+		if (num_digits == 0)
+		{
+			print_error("oct escape character not followed by any octal digits");
+			return 1;
+		}
+
+		int final_val = 0;
+		int powers_of_8[] = {1, 8, 64};
+		int powers_idx = 0;
+		for (int i = num_digits - 1; i >= 0; i--)
+		{
+			final_val += oct_digits[i] * powers_of_8[powers_idx];
+			powers_idx++;
+		}
+
+		if (final_val > 255 || final_val < 0)
+		{
+			print_error("oct escape sequence out of range.");
+			return 1;
+		}
+
+		*res = final_val;
+	}
+	else
+	{
+		char escaped_char = get_escaped_char(cb->next_char);
+		if (!escaped_char)
+		{
+			print_error("not a valid escape character.");
+			return 1;
+		}
+
+		*res = escaped_char;
+	}
+	return 0;
 }
 
 TokenData *tokenize(CharBuffer *cb)
 {
+	current_line = 0;
+
 	TokenData *token_data = alloc_token_data(5000, 250);
 
 	int comment_line_mode = 0;
@@ -263,7 +456,7 @@ TokenData *tokenize(CharBuffer *cb)
 		// Make sure we dont overflow the token buffer
 		if (token_data->_overflow)
 		{
-			printf("Error: encountered an overflow in the TokenData struct!");
+			print_error("encountered an overflow in the TokenData struct");
 			return NULL;
 		}
 
@@ -278,8 +471,7 @@ TokenData *tokenize(CharBuffer *cb)
 		{
 			if (cb->cur_char != '\'')
 			{
-				printf("CURRENT CHAR: %c\n", cb->cur_char);
-				printf("Error: char literals cannot be longer than one character. Line: %d\n", current_line);
+				print_error("char literals cannot be longer than one character.");
 				return NULL;
 			}
 			char_literal_mode = 0;
@@ -319,103 +511,11 @@ TokenData *tokenize(CharBuffer *cb)
 			if (cb->next_char == '\\')
 			{
 				cb_next(cb);
-				if (cb->next_char == 'x')
-				{
-					int hex_digits[2];
-					int num_digits = 0;
-
-					for (int i = 0; i < 2; i++)
-					{
-						cb_next(cb);
-						if (isxdigit(cb->next_char))
-						{
-							if (isalpha(cb->next_char))
-								hex_digits[i] = tolower(cb->next_char) - 'a' + 10;
-							else
-								hex_digits[i] = cb->next_char - '0';
-							num_digits++;
-						}
-						else
-						{
-							cb_back(cb);
-						}
-					}
-
-					if (num_digits == 0)
-					{
-						print_error(current_line, "hex escape character not followed by hex digits");
-						return NULL;
-					}
-
-					int final_val = 0;
-					int powers_of_16[] = {1, 16};
-					int powers_idx = 0;
-					for (int i = num_digits - 1; i >= 0; i--)
-					{
-						final_val += hex_digits[i] * powers_of_16[powers_idx];
-						powers_idx++;
-					}
-
-					if (final_val > 255 || final_val < 0)
-					{
-						printf("Error: hex escape sequence out of range. Line: %d\n", current_line);
-						return NULL;
-					}
-
-					emit_char_literal(token_data, final_val);
-				}
-				else if (isdigit(cb->next_char))
-				{
-					int oct_digits[3];
-					int num_digits = 0;
-
-					for (int i = 0; i < 3; i++)
-					{
-						if (i != 0)
-							cb_next(cb);
-						oct_digits[i] = cb->next_char - '0';
-						if (oct_digits[i] < 0 || oct_digits[i] > 7)
-						{
-							cb_back(cb);
-							break;
-						}
-						num_digits++;
-					}
-
-					if (num_digits == 0)
-					{
-						print_error(current_line, "oct escape character not followed by any octal digits");
-						return NULL;
-					}
-
-					int final_val = 0;
-					int powers_of_8[] = {1, 8, 64};
-					int powers_idx = 0;
-					for (int i = num_digits - 1; i >= 0; i--)
-					{
-						final_val += oct_digits[i] * powers_of_8[powers_idx];
-						powers_idx++;
-					}
-
-					if (final_val > 255 || final_val < 0)
-					{
-						printf("Error: oct escape sequence out of range. Line: %d\n", current_line);
-						return NULL;
-					}
-
-					emit_char_literal(token_data, final_val);
-				}
-				else
-				{
-					char escaped_char = get_escaped_char(cb->next_char);
-					if (!escaped_char)
-					{
-						printf("Error: not a valid escape character. Line: %d\n", current_line);
-						return NULL;
-					}
-
-					emit_char_literal(token_data, escaped_char);
-				}
+				char chr;
+				int err = process_escape_sequence(&chr, cb, token_data);
+				if (err)
+					return NULL;
+				emit_char_literal(token_data, chr);
 			}
 			else
 			{
@@ -454,32 +554,4 @@ TokenData *tokenize(CharBuffer *cb)
 	}
 
 	return token_data;
-}
-
-int main(int argc, char *argv[])
-{
-	if (argc < 2)
-	{
-		printf("Error: please supply an input file\n");
-		return -1;
-	}
-
-	CharBuffer *cb = make_char_buffer(5000);
-
-	const char *const file_name = argv[1];
-	FILE *source_file = fopen(file_name, "r");
-	cb->_size = fread(cb->_buf, sizeof(char), cb->_max_size - 1, source_file);
-	fclose(source_file);
-
-	TokenData *tok_data = tokenize(cb);
-	if (!tok_data)
-	{
-		return -1;
-	}
-
-	free_token_data(tok_data);
-
-	delete_char_buffer(cb);
-
-	return 0;
 }

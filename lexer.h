@@ -79,124 +79,45 @@ enum Token
 	TOK_COMMA,
 };
 
-// clang-format off
-// The string representation of keywords
-const char *const keywords_str[] = 
+typedef struct TokenData
 {
-	"auto",
-	"break",
-	"case",
-	"char",
-	"const",
-	"continue",
-	"default",
-	"do",
-	"double",
-	"else",
-	"enum",
-	"float",
-	"for",
-	"goto",
-	"if",
-	"inline",
-	"int",
-	"long",
-	"return",
-	"short",
-	"signed",
-	"sizeof",
-	"static",
-	"typedef",
-	"union",
-	"unsigned",
-	"void",
-	"while"
-};
+	int _overflow;
 
-// The token equivalent of each element in keywords_str
-const enum Token keywords_tok[] = 
-{
-	TOK_AUTO,
-	TOK_BREAK,
-	TOK_CASE,
-	TOK_CHAR,
-	TOK_CONST,
-	TOK_CONTINUE,
-	TOK_DEFAULT,
-	TOK_DO,
-	TOK_DOUBLE,
-	TOK_ELSE,
-	TOK_ENUM,
-	TOK_FLOAT,
-	TOK_FOR,
-	TOK_GOTO,
-	TOK_IF,
-	TOK_INLINE,
-	TOK_INT,
-	TOK_LONG,
-	TOK_RETURN,
-	TOK_SHORT,
-	TOK_SIGNED,
-	TOK_SIZEOF,
-	TOK_STATIC,
-	TOK_TYPEDEF,
-	TOK_UNION,
-	TOK_UNSIGNED,
-	TOK_VOID,
-	TOK_WHILE
-};
+	int _buf_max_size;
+	int _str_max_size;
 
-const char single_punctuator_char[] = 
-{
-		'[',
-		']',
-		'(',
-		')',
-		'{',
-		'}',
-		'.',
-		'&',
-		'*',
-		'+',
-		'-',
-		'~',
-		'!',
-		'/',
-		'%',
-		'<',
-		'>',
-		'^',
-		'|',
-		':',
-		';',
-		'=',
-		',',
-};
+	int _tok_idx;
+	int _ident_idx;
+	int _str_lit_idx;
+	int _int_const_idx;
+	int _float_const_idx;
 
-const enum Token single_punctuator_tok[] =
+	int *tokens;
+
+	char **identifiers;
+	char **string_literals;
+
+	int *integer_constants;
+	float *floating_constants;
+} TokenData;
+
+typedef struct CharBuffer
 {
-		TOK_OPEN_SQR_BRACK,
-		TOK_CLOSE_SQR_BRACK,
-		TOK_OPEN_PAREN,
-		TOK_CLOSE_PAREN,
-		TOK_OPEN_BRACK,
-		TOK_CLOSE_BRACK,
-		TOK_PERIOD,
-		TOK_AMPERSAND,
-		TOK_STAR,
-		TOK_PLUS,
-		TOK_MINUS,
-		TOK_TILDE,
-		TOK_BANG,
-		TOK_FORWARD_SLASH,
-		TOK_PERCENT,
-		TOK_LSS,
-		TOK_GTR,
-		TOK_CARET,
-		TOK_PIPE,
-		TOK_COLON,
-		TOK_SEMI_COLON,
-		TOK_EQUAL,
-		TOK_COMMA
-};
-// clang-format on
+	char *_buf;
+	int _cur_idx;
+
+	int _max_size;
+	int _size;
+
+	// end-of-buffer
+	int eob;
+
+	char cur_char;
+	char next_char;
+} CharBuffer;
+
+CharBuffer *make_char_buffer(int max_size);
+void delete_char_buffer(CharBuffer *cb);
+
+void free_token_data(TokenData *td);
+TokenData *tokenize(CharBuffer *cb);
