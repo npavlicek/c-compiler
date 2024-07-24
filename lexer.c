@@ -127,7 +127,7 @@ static const enum Token single_punctuator_tok[] =
 };
 // clang-format on
 
-CharBuffer *make_char_buffer(int max_size)
+CharBuffer *make_char_buffer(unsigned long max_size)
 {
 	CharBuffer *res = calloc(1, sizeof(CharBuffer));
 	res->_buf = calloc(max_size, sizeof(char));
@@ -245,20 +245,25 @@ static int is_punctuator(CharBuffer *cb)
 	return -1;
 }
 
-static TokenData *alloc_token_data(int buf_max_size, int str_max_size)
+static TokenData *alloc_token_data(int buf_max_size, int str_max_size, int str_lit_max_len, int ident_max_len)
 {
 	TokenData *res = calloc(1, sizeof(TokenData));
 	res->_buf_max_size = buf_max_size;
-	res->_str_max_size = str_max_size;
+	res->_str_buf_max_size = str_max_size;
+	res->_str_lit_max_len = str_lit_max_len;
+	res->_ident_max_len = ident_max_len;
 	res->tokens = calloc(buf_max_size, sizeof(int));
 	res->identifiers = calloc(buf_max_size, sizeof(char *));
-	res->string_literals = calloc(buf_max_size, sizeof(char *));
+	res->string_literals = calloc(str_max_size, sizeof(char *));
 	res->integer_constants = calloc(buf_max_size, sizeof(int));
 	res->floating_constants = calloc(buf_max_size, sizeof(float));
 	for (int i = 0; i < buf_max_size; i++)
 	{
-		res->identifiers[i] = calloc(str_max_size, sizeof(char));
-		res->string_literals[i] = calloc(str_max_size, sizeof(char));
+		res->identifiers[i] = calloc(ident_max_len, sizeof(char));
+	}
+	for (int i = 0; i < str_max_size; i++)
+	{
+		res->string_literals[i] = calloc(str_lit_max_len, sizeof(char));
 	}
 	return res;
 }
@@ -268,6 +273,9 @@ void free_token_data(TokenData *td)
 	for (int i = 0; i < td->_buf_max_size; i++)
 	{
 		free(td->identifiers[i]);
+	}
+	for (int i = 0; i < td->_str_buf_max_size; i++)
+	{
 		free(td->string_literals[i]);
 	}
 	free(td->tokens);
@@ -325,8 +333,33 @@ static void emit_token(TokenData *buf, int tok)
 
 static void emit_char_literal(TokenData *buf, char chr)
 {
-	emit_token(buf, TOK_CONSTANT_CHAR);
+	emit_token(buf, TOK_CHAR_LITERAL);
 	emit_token(buf, chr);
+}
+
+// The string buffer supplied should already have a null terminator
+static void emit_str_literal(TokenData *buf, const char *str)
+{
+	// sanity check the length of the string
+	if (strlen(str) >= buf->_str_lit_max_len)
+	{
+		buf->_overflow = 1;
+		return;
+	}
+
+	// check for overflows
+	if (buf->_str_lit_idx >= buf->_str_buf_max_size)
+	{
+		buf->_overflow = 1;
+		return;
+	}
+
+	strcpy(buf->string_literals[buf->_str_lit_idx], str);
+
+	emit_token(buf, TOK_STRING_LITERAL);
+	emit_token(buf, buf->_str_lit_idx);
+
+	buf->_str_lit_idx++;
 }
 
 static int current_line = 0;
@@ -338,6 +371,7 @@ static void print_error(const char *message)
 
 // returns anything other than zero if an error is present
 // function assumes the current char is the backslash that enters the escape sequence
+// will return with all the escape chracters being consumed in the CharBuffer
 static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_data)
 {
 	if (cb->next_char == 'x')
@@ -357,7 +391,7 @@ static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_d
 				num_digits++;
 			}
 			else
-		{
+			{
 				cb_back(cb);
 			}
 		}
@@ -437,6 +471,9 @@ static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_d
 
 		*res = escaped_char;
 	}
+
+	cb_next(cb);
+	cb_next(cb);
 	return 0;
 }
 
@@ -444,18 +481,33 @@ TokenData *tokenize(CharBuffer *cb)
 {
 	current_line = 0;
 
-	TokenData *token_data = alloc_token_data(5000, 250);
+	const int BUFFERS_MAX_NUM = 5000;
+	const int STRING_LITERAL_MAX_NUM = 500;
+	const int IDENTIFIER_MAX_LEN = 249;
+	const int STRING_LITERAL_MAX_LEN = 4999;
+	TokenData *token_data =
+		alloc_token_data(BUFFERS_MAX_NUM, STRING_LITERAL_MAX_NUM, STRING_LITERAL_MAX_LEN + 1, IDENTIFIER_MAX_LEN + 1);
+
+	if (!token_data)
+	{
+		print_error("failed to allocate token data struct");
+		return NULL;
+	}
 
 	int comment_line_mode = 0;
 	int comment_block_mode = 0;
-	int char_literal_mode = 0;
+	int string_literal_mode = 0;
 	int current_line = 1;
+
+	char string_literal_buffer[STRING_LITERAL_MAX_LEN + 1];
+	int string_literal_idx = 0;
 
 	while (cb_next(cb))
 	{
 		// Make sure we dont overflow the token buffer
 		if (token_data->_overflow)
 		{
+			printf("ERROR STRING: %s\n", string_literal_buffer);
 			print_error("encountered an overflow in the TokenData struct");
 			return NULL;
 		}
@@ -466,15 +518,37 @@ TokenData *tokenize(CharBuffer *cb)
 			current_line++;
 		}
 
-		// check to exit char literal mode
-		if (char_literal_mode)
+		// check string literal mode
+		if (string_literal_mode)
 		{
-			if (cb->cur_char != '\'')
+			// error if a new line is encountered before the exit char
+			if (cb->cur_char == '\n' || cb->cur_char == '\r')
 			{
-				print_error("char literals cannot be longer than one character.");
+				print_error("string literals must be ended before a new line");
 				return NULL;
 			}
-			char_literal_mode = 0;
+
+			// end the string literal and emit
+			if (cb->cur_char == '\"')
+			{
+				emit_str_literal(token_data, string_literal_buffer);
+				memset(string_literal_buffer, 0, STRING_LITERAL_MAX_LEN + 1);
+				string_literal_idx = 0;
+				string_literal_mode = 0;
+				continue;
+			}
+
+			// check if we are gonna overflow the string literal
+			if (string_literal_idx >= STRING_LITERAL_MAX_LEN)
+			{
+				print_error("string literal is too long");
+				return NULL;
+			}
+
+			// TODO: Process escape sequences
+
+			string_literal_buffer[string_literal_idx] = cb->cur_char;
+			string_literal_idx++;
 			continue;
 		}
 
@@ -506,7 +580,6 @@ TokenData *tokenize(CharBuffer *cb)
 		// char literal mode
 		if (cb->cur_char == '\'')
 		{
-			char_literal_mode = 1;
 			// check if the char is an escape character
 			if (cb->next_char == '\\')
 			{
@@ -519,10 +592,24 @@ TokenData *tokenize(CharBuffer *cb)
 			}
 			else
 			{
-				emit_char_literal(token_data, cb->next_char);
+				cb_next(cb);
+				emit_char_literal(token_data, cb->cur_char);
+				cb_next(cb);
 			}
-			// Shift our buffer over by an extra one
-			cb_next(cb);
+
+			if (cb->cur_char != '\'')
+			{
+				print_error("char literals cannot be longer than one character.");
+				return NULL;
+			}
+
+			continue;
+		}
+
+		// string literals
+		if (cb->cur_char == '\"')
+		{
+			string_literal_mode = 1;
 			continue;
 		}
 

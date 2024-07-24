@@ -37,7 +37,7 @@ enum Token
 
 	// GENERAL
 	TOK_IDENTIFIER,
-	TOK_CONSTANT_CHAR,
+	TOK_CHAR_LITERAL,
 	TOK_CONSTANT_INTEGER,
 	TOK_CONSTANT_FLOATING,
 	TOK_STRING_LITERAL,
@@ -84,7 +84,10 @@ typedef struct TokenData
 	int _overflow;
 
 	int _buf_max_size;
-	int _str_max_size;
+	int _str_buf_max_size;
+
+	int _str_lit_max_len;
+	int _ident_max_len;
 
 	int _tok_idx;
 	int _ident_idx;
@@ -106,8 +109,8 @@ typedef struct CharBuffer
 	char *_buf;
 	int _cur_idx;
 
-	int _max_size;
-	int _size;
+	unsigned long _max_size;
+	unsigned long _size;
 
 	// end-of-buffer
 	int eob;
@@ -116,7 +119,7 @@ typedef struct CharBuffer
 	char next_char;
 } CharBuffer;
 
-CharBuffer *make_char_buffer(int max_size);
+CharBuffer *make_char_buffer(unsigned long max_size);
 void delete_char_buffer(CharBuffer *cb);
 
 void free_token_data(TokenData *td);
