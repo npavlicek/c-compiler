@@ -127,64 +127,6 @@ static const enum Token single_punctuator_tok[] =
 };
 // clang-format on
 
-CharBuffer *make_char_buffer(unsigned long max_size)
-{
-	CharBuffer *res = calloc(1, sizeof(CharBuffer));
-	res->_buf = calloc(max_size, sizeof(char));
-	res->_cur_idx = -1;
-	res->_max_size = max_size;
-	res->eob = 0;
-	return res;
-}
-
-void delete_char_buffer(CharBuffer *cb)
-{
-	free(cb->_buf);
-	free(cb);
-}
-
-static int cb_next(CharBuffer *cb)
-{
-	if (cb->eob)
-		return 0;
-
-	cb->_cur_idx++;
-
-	if (cb->_cur_idx >= cb->_size || cb->_cur_idx >= cb->_max_size)
-	{
-		cb->eob = 1;
-		return 0;
-	}
-
-	cb->cur_char = cb->_buf[cb->_cur_idx];
-
-	if (cb->_cur_idx + 1 < cb->_size)
-	{
-		cb->next_char = cb->_buf[cb->_cur_idx + 1];
-	}
-	else
-	{
-		cb->next_char = 0;
-	}
-
-	return 1;
-}
-
-static int cb_back(CharBuffer *cb)
-{
-	if (cb->eob)
-		return 0;
-
-	if (cb->_cur_idx > 0)
-	{
-		cb->_cur_idx--;
-		cb->cur_char = cb->_buf[cb->_cur_idx];
-		cb->next_char = cb->_buf[cb->_cur_idx + 1];
-	}
-
-	return 1;
-}
-
 // Returns -1 if theres no match, otherwise the token
 static int is_keyword(const char *const str)
 {
@@ -507,7 +449,6 @@ TokenData *tokenize(CharBuffer *cb)
 		// Make sure we dont overflow the token buffer
 		if (token_data->_overflow)
 		{
-			printf("ERROR STRING: %s\n", string_literal_buffer);
 			print_error("encountered an overflow in the TokenData struct");
 			return NULL;
 		}
@@ -545,9 +486,17 @@ TokenData *tokenize(CharBuffer *cb)
 				return NULL;
 			}
 
-			// TODO: Process escape sequences
+			char cur_char = cb->cur_char;
 
-			string_literal_buffer[string_literal_idx] = cb->cur_char;
+			// check for an escape char
+			if (cb->cur_char == '\\')
+			{
+				int err = process_escape_sequence(&cur_char, cb, token_data);
+				if (err)
+					return NULL;
+			}
+
+			string_literal_buffer[string_literal_idx] = cur_char;
 			string_literal_idx++;
 			continue;
 		}

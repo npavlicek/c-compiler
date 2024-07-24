@@ -11,8 +11,8 @@ I hope to be able to bootstrap this compiler.
 - [ ] Lexer
     - [x] Character Literals
         - [x] Fix character escape bug. An escaped character hex or oct literal must have the exact length of a byte. A hex value must have two digits and an oct needs three. Anything shorter throws an error.
-    - [ ] String literals
-        - [ ] Implement processing escape chars for string literals
+    - [x] String literals
+        - [x] Implement processing escape chars for string literals
     - [ ] Identifiers
     - [ ] Integer constants
     - [ ] Floating constants

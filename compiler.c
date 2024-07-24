@@ -1,7 +1,5 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <ctype.h>
-#include <string.h>
 
 #include "lexer.h"
 
@@ -34,7 +32,7 @@ int main(int argc, char *argv[])
 	}
 
 	// +1 for the NULL char
-	CharBuffer *cb = make_char_buffer(file_size + 1);
+	CharBuffer *cb = alloc_char_buffer(file_size + 1);
 
 	// -1 to not overwrite the NULL char
 	cb->_size = fread(cb->_buf, sizeof(char), cb->_max_size - 1, source_file);

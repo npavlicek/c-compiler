@@ -1,5 +1,7 @@
 #pragma once
 
+#include "char_buffer.h"
+
 // Not all tokens are going to be implemented yet
 enum Token 
 {
@@ -103,24 +105,6 @@ typedef struct TokenData
 	int *integer_constants;
 	float *floating_constants;
 } TokenData;
-
-typedef struct CharBuffer
-{
-	char *_buf;
-	int _cur_idx;
-
-	unsigned long _max_size;
-	unsigned long _size;
-
-	// end-of-buffer
-	int eob;
-
-	char cur_char;
-	char next_char;
-} CharBuffer;
-
-CharBuffer *make_char_buffer(unsigned long max_size);
-void delete_char_buffer(CharBuffer *cb);
 
 void free_token_data(TokenData *td);
 TokenData *tokenize(CharBuffer *cb);

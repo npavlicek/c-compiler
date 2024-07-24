@@ -1,3 +1,3 @@
 project (CCompiler C)
 
-add_executable(CCompiler compiler.c lexer.c)
+add_executable(CCompiler compiler.c lexer.c char_buffer.c)
