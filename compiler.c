@@ -39,10 +39,10 @@ int main(int argc, char *argv[])
 	fclose(source_file);
 
 	TokenData *tok_data = tokenize(cb);
-	if (!tok_data)
-	{
-		return -1;
-	}
+//	if (!tok_data)
+//	{
+//		return -1;
+//	}
 
 	// debug info
 	printf("\n\nEmitted tokens:\n");
@@ -71,6 +71,16 @@ int main(int argc, char *argv[])
 			{
 				printf("%d\n", tok_data->tokens[i + 1]);
 			}
+			i++;
+		}
+	}
+
+	printf("\n\nEmitted identifiers:\n");
+	for (int i = 0; i < tok_data->_tok_idx; i++)
+	{
+		if (tok_data->tokens[i] == TOK_IDENTIFIER)
+		{
+			printf("%s\n", tok_data->identifiers[tok_data->tokens[i+1]]);
 			i++;
 		}
 	}

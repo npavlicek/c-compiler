@@ -146,7 +146,7 @@ static int is_punctuator(CharBuffer *cb)
 	char f = cb->cur_char;
 	char s = cb->next_char;
 
-	// In order to process the double char only once when we return to the tokenize function
+	// Shift the char buffer over one in case we return early
 	cb_next(cb);
 
 	// double char tokens
@@ -173,6 +173,7 @@ static int is_punctuator(CharBuffer *cb)
 	if (f == '|' && s == '|')
 		return TOK_OR;
 
+	// If we didnt detect a double char punctuator we shift back
 	cb_back(cb);
 
 	// single char tokens
@@ -208,6 +209,19 @@ static TokenData *alloc_token_data(int buf_max_size, int str_max_size, int str_l
 		res->string_literals[i] = calloc(str_lit_max_len, sizeof(char));
 	}
 	return res;
+}
+
+// Returns -1 if no match, otherwise the index of the identifier
+static int check_identifier(TokenData *token_data, const char *const ident)
+{
+	for (int i = 0; i < token_data->_ident_idx; i++)
+	{
+		if (strcmp(ident, token_data->identifiers[i]) == 0)
+		{
+			return i;
+		}
+	}
+	return -1;
 }
 
 void free_token_data(TokenData *td)
@@ -304,6 +318,31 @@ static void emit_str_literal(TokenData *buf, const char *str)
 	buf->_str_lit_idx++;
 }
 
+// Returns a value other than zero if theres an error or overflow
+static void emit_ident(TokenData *token_data, const char *const ident)
+{
+	emit_token(token_data, TOK_IDENTIFIER);
+
+	int idnt_idx = check_identifier(token_data, ident);
+	if (idnt_idx != -1)
+	{
+		emit_token(token_data, idnt_idx);
+	}
+	else
+	{
+		// check for overflows
+		if (strlen(ident) >= token_data->_ident_max_len || token_data->_ident_idx >= token_data->_buf_max_size)
+		{
+			token_data->_overflow = 1;
+			return;
+		}
+
+		strcpy(token_data->identifiers[token_data->_ident_idx], ident);
+		emit_token(token_data, token_data->_ident_idx);
+		token_data->_ident_idx++;
+	}
+}
+
 static int current_line = 0;
 
 static void print_error(const char *message)
@@ -313,7 +352,7 @@ static void print_error(const char *message)
 
 // returns anything other than zero if an error is present
 // function assumes the current char is the backslash that enters the escape sequence
-// will return with all the escape chracters being consumed in the CharBuffer
+// function will return with the charbuffer being on the last char in the escape sequence
 static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_data)
 {
 	if (cb->next_char == 'x')
@@ -415,7 +454,6 @@ static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_d
 	}
 
 	cb_next(cb);
-	cb_next(cb);
 	return 0;
 }
 
@@ -439,10 +477,12 @@ TokenData *tokenize(CharBuffer *cb)
 	int comment_line_mode = 0;
 	int comment_block_mode = 0;
 	int string_literal_mode = 0;
-	int current_line = 1;
 
 	char string_literal_buffer[STRING_LITERAL_MAX_LEN + 1];
 	int string_literal_idx = 0;
+
+	char identifier_buffer[IDENTIFIER_MAX_LEN + 1];
+	int identifier_buf_idx = 0;
 
 	while (cb_next(cb))
 	{
@@ -524,6 +564,18 @@ TokenData *tokenize(CharBuffer *cb)
 		if (isspace(cb->cur_char))
 			continue;
 
+		// for now lets just consume all the preprocessor directives
+		// must be after all comment checks and string literal checks or else we will parse out any strings with # in
+		// them or mess up the comment block mode
+		if (cb->cur_char == '#')
+		{
+			while (cb->next_char != '\n')
+			{
+				cb_next(cb);
+			}
+			continue;
+		}
+
 		// TODO: implement char literal prefixes
 
 		// char literal mode
@@ -537,6 +589,7 @@ TokenData *tokenize(CharBuffer *cb)
 				int err = process_escape_sequence(&chr, cb, token_data);
 				if (err)
 					return NULL;
+				cb_next(cb);
 				emit_char_literal(token_data, chr);
 			}
 			else
@@ -583,6 +636,41 @@ TokenData *tokenize(CharBuffer *cb)
 		if (pctr != -1)
 		{
 			emit_token(token_data, pctr);
+			continue;
+		}
+
+		float test = 1.f;
+
+		// check for identifiers or keywords
+		if (isalpha(cb->cur_char) || cb->cur_char == '_')
+		{
+			identifier_buffer[identifier_buf_idx] = cb->cur_char;
+			identifier_buf_idx++;
+			while (isalnum(cb->next_char) || cb->next_char == '_')
+			{
+				if (identifier_buf_idx >= IDENTIFIER_MAX_LEN)
+				{
+					print_error("identifier name too long");
+					return NULL;
+				}
+				cb_next(cb);
+				identifier_buffer[identifier_buf_idx] = cb->cur_char;
+				identifier_buf_idx++;
+			}
+
+			int kwd = is_keyword(identifier_buffer);
+			if (kwd != -1)
+			{
+				emit_token(token_data, kwd);
+			}
+			else
+			{
+				emit_ident(token_data, identifier_buffer);
+			}
+
+			// finally reset the buffer
+			memset(identifier_buffer, 0, IDENTIFIER_MAX_LEN + 1);
+			identifier_buf_idx = 0;
 			continue;
 		}
 
