@@ -1,5 +1,5 @@
-#include <stdio.h>
 #include <ctype.h>
+#include <stdio.h>
 
 #include "lexer.h"
 
@@ -39,10 +39,10 @@ int main(int argc, char *argv[])
 	fclose(source_file);
 
 	TokenData *tok_data = tokenize(cb);
-//	if (!tok_data)
-//	{
-//		return -1;
-//	}
+	if (!tok_data)
+	{
+		return -1;
+	}
 
 	// debug info
 	printf("\n\nEmitted tokens:\n");
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
 	{
 		if (tok_data->tokens[i] == TOK_IDENTIFIER)
 		{
-			printf("%s\n", tok_data->identifiers[tok_data->tokens[i+1]]);
+			printf("%s\n", tok_data->identifiers[tok_data->tokens[i + 1]]);
 			i++;
 		}
 	}

@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -348,6 +349,7 @@ static int current_line = 0;
 static void print_error(const char *message)
 {
 	printf("[Line %d] Error: %s\n", current_line, message);
+	raise(SIGTRAP);
 }
 
 // returns anything other than zero if an error is present
@@ -454,6 +456,152 @@ static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_d
 	}
 
 	cb_next(cb);
+	return 0;
+}
+typedef struct NumConstant
+{
+	int base;
+	int before_point;
+	int after_point;
+	int floating;
+	int exponent;
+} NumConstant;
+
+static int is_digit_in_base(char chr, int base)
+{
+	if (base == 16)
+	{
+		if (isxdigit(chr))
+			return 1;
+	}
+	else if (base == 8)
+	{
+		int digit = chr - '0';
+		if (digit >= 0 && digit <= 7)
+			return 1;
+	}
+	else
+	{
+		if (isdigit(chr))
+			return 1;
+	}
+	return 0;
+}
+
+static int digits(CharBuffer *cb, NumConstant *nc, int *res)
+{
+	static const int MAX_DIGIT_LENGTH = 100;
+	char digit_buffer[MAX_DIGIT_LENGTH];
+	memset(digit_buffer, 0, MAX_DIGIT_LENGTH);
+	int digit_idx = 0;
+	while (is_digit_in_base(cb->cur_char, nc->base))
+	{
+		if (digit_idx >= MAX_DIGIT_LENGTH)
+		{
+			print_error("numerical constant too long");
+			return 1;
+		}
+		digit_buffer[digit_idx] = cb->cur_char;
+		digit_idx += 1;
+		cb_next(cb);
+	}
+	*res = strtol(digit_buffer, NULL, nc->base);
+	return 0;
+}
+
+static int hex_constant(CharBuffer *cb, NumConstant *nc)
+{
+	int res;
+	int err = digits(cb, nc, &res);
+	if (err)
+		return err;
+
+	nc->before_point = res;
+
+	if (cb->cur_char == '.')
+	{
+		nc->floating = 1;
+		cb_next(cb);
+		int err = digits(cb, nc, &res);
+		if (err)
+			return err;
+		nc->after_point = res;
+
+		// check for exponent
+		if (tolower(cb->cur_char) != 'p')
+		{
+			print_error("floating constant requries exponent");
+			return 1;
+		}
+
+		cb_next(cb);
+
+		err = digits(cb, nc, &res);
+		if (err)
+			return err;
+
+		nc->exponent = res;
+	}
+
+	// TODO: check for suffix
+
+	printf("FLOATING POINT NUMBER:\n");
+	printf("before point: %d\n", nc->before_point);
+	printf("after point: %d\n", nc->after_point);
+	printf("floating: %d\n", nc->floating);
+	printf("base: %d\n", nc->base);
+	printf("exponent: %d\n", nc->exponent);
+
+	return 0;
+}
+
+static int oct_constant(CharBuffer *cb, NumConstant *nc)
+{
+
+	return 0;
+}
+
+static int dec_constant(CharBuffer *cb, NumConstant *nc)
+{
+	return 0;
+}
+
+// returns !0 if an error was encountered
+int num_constant(CharBuffer *cb, NumConstant *nc)
+{
+	if (isdigit(cb->cur_char))
+	{
+		memset(nc, 0, sizeof(NumConstant));
+		if (cb->cur_char == '0' && tolower(cb->next_char) == 'x')
+		{
+			cb_next(cb);
+			cb_next(cb);
+
+			nc->base = 16;
+
+			int err = hex_constant(cb, nc);
+			if (err)
+				return err;
+		}
+		else if (cb->cur_char == '0')
+		{
+			cb_next(cb);
+
+			nc->base = 8;
+
+			int err = oct_constant(cb, nc);
+			if (err)
+				return err;
+		}
+		else
+		{
+			nc->base = 10;
+
+			int err = dec_constant(cb, nc);
+			if (err)
+				return err;
+		}
+	}
 	return 0;
 }
 
@@ -639,8 +787,6 @@ TokenData *tokenize(CharBuffer *cb)
 			continue;
 		}
 
-		float test = 1.f;
-
 		// check for identifiers or keywords
 		if (isalpha(cb->cur_char) || cb->cur_char == '_')
 		{
@@ -673,6 +819,14 @@ TokenData *tokenize(CharBuffer *cb)
 			identifier_buf_idx = 0;
 			continue;
 		}
+
+		// Numerical constants
+		NumConstant nc;
+		int err = num_constant(cb, &nc);
+		if (err)
+			return NULL;
+		else
+			continue;
 
 		printf("%c", cb->cur_char);
 	}
