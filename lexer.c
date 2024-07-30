@@ -344,7 +344,7 @@ static void emit_ident(TokenData *token_data, const char *const ident)
 	}
 }
 
-static int current_line = 0;
+static int current_line = 1;
 
 static void print_error(const char *message)
 {
@@ -458,6 +458,83 @@ static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_d
 	cb_next(cb);
 	return 0;
 }
+
+#define NUM_INTEGER_SUFFIXES 14
+#define NUM_FLOATING_SUFFIXES 4
+
+// clang-format off
+typedef enum int_types {
+	INT_TYPE_SIGNED_LLONG,
+	INT_TYPE_UNSIGNED_LLONG,
+	INT_TYPE_SIGNED_LONG,
+	INT_TYPE_UNSIGNED_LONG,
+	INT_TYPE_SIGNED_INT,
+	INT_TYPE_UNSIGNED_INT
+} int_types;
+
+typedef enum floating_types {
+	FLOATING_TYPE_DOUBLE,
+	FLOATING_TYPE_FLOAT,
+	FLOATING_TYPE_LDOUBLE
+} floating_types;
+
+static const char *integer_suffixes[NUM_INTEGER_SUFFIXES] = {
+	"llu",
+	"llU",
+	"LLu",
+	"LLU",
+
+	"lu",
+	"lU",
+	"Lu",
+	"LU",
+
+	"u",
+	"U",
+
+	"ll",
+	"LL",
+	
+	"l",
+	"L"
+};
+
+static const int_types integer_suffix_types[NUM_INTEGER_SUFFIXES] = {
+	INT_TYPE_UNSIGNED_LLONG,
+	INT_TYPE_UNSIGNED_LLONG,
+	INT_TYPE_UNSIGNED_LLONG,
+	INT_TYPE_UNSIGNED_LLONG,
+
+	INT_TYPE_UNSIGNED_LONG,
+	INT_TYPE_UNSIGNED_LONG,
+	INT_TYPE_UNSIGNED_LONG,
+	INT_TYPE_UNSIGNED_LONG,
+
+	INT_TYPE_UNSIGNED_INT,
+	INT_TYPE_UNSIGNED_INT,
+
+	INT_TYPE_SIGNED_LLONG,
+	INT_TYPE_SIGNED_LLONG,
+
+	INT_TYPE_SIGNED_LONG,
+	INT_TYPE_SIGNED_LONG,
+};
+
+static const char *floating_suffixes[NUM_FLOATING_SUFFIXES] = {
+	"f",
+	"F",
+	"l",
+	"L",
+};
+
+static const floating_types floating_suffix_types[NUM_FLOATING_SUFFIXES] = {
+	FLOATING_TYPE_FLOAT,
+	FLOATING_TYPE_FLOAT,
+	FLOATING_TYPE_LDOUBLE,
+	FLOATING_TYPE_LDOUBLE,
+};
+// clang-format on
+
 typedef struct NumConstant
 {
 	int base;
@@ -465,6 +542,8 @@ typedef struct NumConstant
 	int after_point;
 	int floating;
 	int exponent;
+	floating_types floating_type;
+	int_types int_type;
 } NumConstant;
 
 static int is_digit_in_base(char chr, int base)
@@ -488,13 +567,19 @@ static int is_digit_in_base(char chr, int base)
 	return 0;
 }
 
-static int digits(CharBuffer *cb, NumConstant *nc, int *res)
+static int digits(CharBuffer *cb, int base, int *res, int *digits_read)
 {
 	static const int MAX_DIGIT_LENGTH = 100;
 	char digit_buffer[MAX_DIGIT_LENGTH];
 	memset(digit_buffer, 0, MAX_DIGIT_LENGTH);
 	int digit_idx = 0;
-	while (is_digit_in_base(cb->cur_char, nc->base))
+	int found_digit = 0;
+	if (cb->cur_char == '+' || cb->cur_char == '-')
+	{
+		digit_buffer[digit_idx++] = cb->cur_char;
+		cb_next(cb);
+	}
+	while (is_digit_in_base(cb->cur_char, base))
 	{
 		if (digit_idx >= MAX_DIGIT_LENGTH)
 		{
@@ -504,15 +589,18 @@ static int digits(CharBuffer *cb, NumConstant *nc, int *res)
 		digit_buffer[digit_idx] = cb->cur_char;
 		digit_idx += 1;
 		cb_next(cb);
+		found_digit = 1;
 	}
-	*res = strtol(digit_buffer, NULL, nc->base);
+	*res = strtol(digit_buffer, NULL, base);
+	if (digits_read && found_digit)
+		*digits_read = 1;
 	return 0;
 }
 
-static int hex_constant(CharBuffer *cb, NumConstant *nc)
+static int read_constant(CharBuffer *cb, NumConstant *nc)
 {
 	int res;
-	int err = digits(cb, nc, &res);
+	int err = digits(cb, nc->base, &res, NULL);
 	if (err)
 		return err;
 
@@ -522,47 +610,101 @@ static int hex_constant(CharBuffer *cb, NumConstant *nc)
 	{
 		nc->floating = 1;
 		cb_next(cb);
-		int err = digits(cb, nc, &res);
+		int err = digits(cb, nc->base, &res, NULL);
 		if (err)
 			return err;
+
 		nc->after_point = res;
 
-		// check for exponent
-		if (tolower(cb->cur_char) != 'p')
+		if (nc->base == 16 && tolower(cb->cur_char) != 'p')
 		{
-			print_error("floating constant requries exponent");
+			print_error("hex floating constant requires exponent");
 			return 1;
 		}
+	}
 
+	// consume the exponent
+	if ((nc->base == 10 && tolower(cb->cur_char == 'e')) ||
+	    (nc->base == 16 && (tolower(cb->cur_char == 'p') || tolower(cb->cur_char == 'e'))))
+	{
+		// consume the char
 		cb_next(cb);
-
-		err = digits(cb, nc, &res);
+		int digits_read = 0;
+		err = digits(cb, 10, &res, &digits_read);
 		if (err)
 			return err;
+
+		if (!digits_read)
+		{
+			print_error("hex floating constant requires exponent");
+			return 1;
+		}
 
 		nc->exponent = res;
 	}
 
-	// TODO: check for suffix
+	// read suffix
+	static const int MAX_LEN_SUFFIX_BUFFER = 50;
+	char suffix_buffer[MAX_LEN_SUFFIX_BUFFER];
+	memset(suffix_buffer, 0, MAX_LEN_SUFFIX_BUFFER);
+	int suffix_buffer_idx = 0;
+	while (isalpha(cb->cur_char))
+	{
+		if (suffix_buffer_idx >= MAX_LEN_SUFFIX_BUFFER - 1)
+		{
+			print_error("suffix is too long");
+			return 1;
+		}
+		suffix_buffer[suffix_buffer_idx++] = cb->cur_char;
+		cb_next(cb);
+	}
 
-	printf("FLOATING POINT NUMBER:\n");
-	printf("before point: %d\n", nc->before_point);
-	printf("after point: %d\n", nc->after_point);
-	printf("floating: %d\n", nc->floating);
-	printf("base: %d\n", nc->base);
-	printf("exponent: %d\n", nc->exponent);
+	// check suffixes
+	int found_suffix = 0;
+	if (strlen(suffix_buffer) > 0)
+	{
+		if (nc->floating)
+		{
+			for (int i = 0; i < NUM_FLOATING_SUFFIXES; i++)
+			{
+				if (strcmp(suffix_buffer, floating_suffixes[i]) == 0)
+				{
+					nc->floating_type = floating_suffix_types[i];
+					found_suffix = 1;
+				}
+			}
+		}
+		else
+		{
+			for (int i = 0; i < NUM_INTEGER_SUFFIXES; i++)
+			{
+				if (strcmp(suffix_buffer, integer_suffixes[i]) == 0)
+				{
+					nc->int_type = integer_suffix_types[i];
+					found_suffix = 1;
+				}
+			}
+		}
+	}
+	else
+	{
+		if (nc->floating)
+		{
+			nc->floating_type = FLOATING_TYPE_DOUBLE;
+		}
+		else
+		{
+			nc->int_type = INT_TYPE_SIGNED_INT;
+		}
+		found_suffix = 1;
+	}
 
-	return 0;
-}
+	if (!found_suffix && strlen(suffix_buffer) > 0)
+	{
+		print_error("invalid suffix");
+		return 1;
+	}
 
-static int oct_constant(CharBuffer *cb, NumConstant *nc)
-{
-
-	return 0;
-}
-
-static int dec_constant(CharBuffer *cb, NumConstant *nc)
-{
 	return 0;
 }
 
@@ -578,36 +720,27 @@ int num_constant(CharBuffer *cb, NumConstant *nc)
 			cb_next(cb);
 
 			nc->base = 16;
-
-			int err = hex_constant(cb, nc);
-			if (err)
-				return err;
 		}
 		else if (cb->cur_char == '0')
 		{
 			cb_next(cb);
 
 			nc->base = 8;
-
-			int err = oct_constant(cb, nc);
-			if (err)
-				return err;
 		}
 		else
 		{
 			nc->base = 10;
-
-			int err = dec_constant(cb, nc);
-			if (err)
-				return err;
 		}
+		int err = read_constant(cb, nc);
+		if (err)
+			return err;
 	}
 	return 0;
 }
 
 TokenData *tokenize(CharBuffer *cb)
 {
-	current_line = 0;
+	current_line = 1;
 
 	const int BUFFERS_MAX_NUM = 5000;
 	const int STRING_LITERAL_MAX_NUM = 500;
@@ -821,6 +954,7 @@ TokenData *tokenize(CharBuffer *cb)
 		}
 
 		// Numerical constants
+		// TODO: emit the constant
 		NumConstant nc;
 		int err = num_constant(cb, &nc);
 		if (err)

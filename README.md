@@ -14,8 +14,9 @@ I hope to be able to bootstrap this compiler.
     - [x] String literals
         - [x] Implement processing escape chars for string literals
     - [x] Identifiers
-    - [ ] Integer constants
-    - [ ] Floating constants
+    - [ ] Numerical constants
+        - [x] floating constants and all suffixes plus exponents are supported
+        - [ ] emit the numerical constants
 - [ ] Recursive Descent Parser
 
 ## Missing features
