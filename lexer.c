@@ -459,7 +459,7 @@ static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_d
 	return 0;
 }
 
-#define NUM_INTEGER_SUFFIXES 14
+#define NUM_INTEGER_SUFFIXES 22
 #define NUM_FLOATING_SUFFIXES 4
 
 // clang-format off
@@ -488,6 +488,16 @@ static const char *integer_suffixes[NUM_INTEGER_SUFFIXES] = {
 	"lU",
 	"Lu",
 	"LU",
+	
+	"ull",
+	"Ull",
+	"uLL",
+	"ULL",
+
+	"ul",
+	"Ul",
+	"uL",
+	"UL",
 
 	"u",
 	"U",
@@ -500,6 +510,16 @@ static const char *integer_suffixes[NUM_INTEGER_SUFFIXES] = {
 };
 
 static const int_types integer_suffix_types[NUM_INTEGER_SUFFIXES] = {
+	INT_TYPE_UNSIGNED_LLONG,
+	INT_TYPE_UNSIGNED_LLONG,
+	INT_TYPE_UNSIGNED_LLONG,
+	INT_TYPE_UNSIGNED_LLONG,
+
+	INT_TYPE_UNSIGNED_LONG,
+	INT_TYPE_UNSIGNED_LONG,
+	INT_TYPE_UNSIGNED_LONG,
+	INT_TYPE_UNSIGNED_LONG,
+
 	INT_TYPE_UNSIGNED_LLONG,
 	INT_TYPE_UNSIGNED_LLONG,
 	INT_TYPE_UNSIGNED_LLONG,
@@ -742,8 +762,8 @@ TokenData *tokenize(CharBuffer *cb)
 {
 	current_line = 1;
 
-	const int BUFFERS_MAX_NUM = 5000;
-	const int STRING_LITERAL_MAX_NUM = 500;
+	const int BUFFERS_MAX_NUM = 50000;
+	const int STRING_LITERAL_MAX_NUM = 5000;
 	const int IDENTIFIER_MAX_LEN = 249;
 	const int STRING_LITERAL_MAX_LEN = 4999;
 	TokenData *token_data =
@@ -760,9 +780,11 @@ TokenData *tokenize(CharBuffer *cb)
 	int string_literal_mode = 0;
 
 	char string_literal_buffer[STRING_LITERAL_MAX_LEN + 1];
+	memset(string_literal_buffer, 0, STRING_LITERAL_MAX_LEN + 1);
 	int string_literal_idx = 0;
 
 	char identifier_buffer[IDENTIFIER_MAX_LEN + 1];
+	memset(identifier_buffer, 0, IDENTIFIER_MAX_LEN+ 1);
 	int identifier_buf_idx = 0;
 
 	while (cb_next(cb))
