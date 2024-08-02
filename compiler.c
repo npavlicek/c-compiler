@@ -88,6 +88,7 @@ int main(int argc, char *argv[])
 	printf("\n\n# tokens: %d\n", tok_data->_tok_idx);
 	printf("# string literals: %d\n", tok_data->_str_lit_idx);
 	printf("# identifiers: %d\n", tok_data->_ident_idx);
+	printf("# num constants: %d\n", tok_data->_num_const_idx);
 
 	free_token_data(tok_data);
 

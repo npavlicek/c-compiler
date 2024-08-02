@@ -199,8 +199,7 @@ static TokenData *alloc_token_data(int buf_max_size, int str_max_size, int str_l
 	res->tokens = calloc(buf_max_size, sizeof(int));
 	res->identifiers = calloc(buf_max_size, sizeof(char *));
 	res->string_literals = calloc(str_max_size, sizeof(char *));
-	res->integer_constants = calloc(buf_max_size, sizeof(int));
-	res->floating_constants = calloc(buf_max_size, sizeof(float));
+	res->num_constants = calloc(buf_max_size, sizeof(NumConstant *));
 	for (int i = 0; i < buf_max_size; i++)
 	{
 		res->identifiers[i] = calloc(ident_max_len, sizeof(char));
@@ -230,6 +229,7 @@ void free_token_data(TokenData *td)
 	for (int i = 0; i < td->_buf_max_size; i++)
 	{
 		free(td->identifiers[i]);
+		free(td->num_constants[i]);
 	}
 	for (int i = 0; i < td->_str_buf_max_size; i++)
 	{
@@ -238,8 +238,7 @@ void free_token_data(TokenData *td)
 	free(td->tokens);
 	free(td->identifiers);
 	free(td->string_literals);
-	free(td->integer_constants);
-	free(td->floating_constants);
+	free(td->num_constants);
 	free(td);
 }
 
@@ -463,21 +462,6 @@ static int process_escape_sequence(char *res, CharBuffer *cb, TokenData *token_d
 #define NUM_FLOATING_SUFFIXES 4
 
 // clang-format off
-typedef enum int_types {
-	INT_TYPE_SIGNED_LLONG,
-	INT_TYPE_UNSIGNED_LLONG,
-	INT_TYPE_SIGNED_LONG,
-	INT_TYPE_UNSIGNED_LONG,
-	INT_TYPE_SIGNED_INT,
-	INT_TYPE_UNSIGNED_INT
-} int_types;
-
-typedef enum floating_types {
-	FLOATING_TYPE_DOUBLE,
-	FLOATING_TYPE_FLOAT,
-	FLOATING_TYPE_LDOUBLE
-} floating_types;
-
 static const char *integer_suffixes[NUM_INTEGER_SUFFIXES] = {
 	"llu",
 	"llU",
@@ -554,17 +538,6 @@ static const floating_types floating_suffix_types[NUM_FLOATING_SUFFIXES] = {
 	FLOATING_TYPE_LDOUBLE,
 };
 // clang-format on
-
-typedef struct NumConstant
-{
-	int base;
-	int before_point;
-	int after_point;
-	int floating;
-	int exponent;
-	floating_types floating_type;
-	int_types int_type;
-} NumConstant;
 
 static int is_digit_in_base(char chr, int base)
 {
@@ -728,12 +701,30 @@ static int read_constant(CharBuffer *cb, NumConstant *nc)
 	return 0;
 }
 
+// Returns !0 if error
+static int emit_num_constant(NumConstant *nc, TokenData *token_data)
+{
+	if (token_data->_num_const_idx >= token_data->_buf_max_size)
+	{
+		token_data->_overflow = 1;
+		return 1;
+	}
+
+	emit_token(token_data, TOK_NUMERICAL_CONSTANT);
+
+	token_data->num_constants[token_data->_num_const_idx] = nc;
+	emit_token(token_data, token_data->_num_const_idx);
+	token_data->_num_const_idx++;
+
+	return 0;
+}
+
 // returns !0 if an error was encountered
-int num_constant(CharBuffer *cb, NumConstant *nc)
+static int num_constant(CharBuffer *cb, TokenData *token_data)
 {
 	if (isdigit(cb->cur_char))
 	{
-		memset(nc, 0, sizeof(NumConstant));
+		NumConstant *nc = calloc(1, sizeof(NumConstant));
 		if (cb->cur_char == '0' && tolower(cb->next_char) == 'x')
 		{
 			cb_next(cb);
@@ -752,6 +743,10 @@ int num_constant(CharBuffer *cb, NumConstant *nc)
 			nc->base = 10;
 		}
 		int err = read_constant(cb, nc);
+		if (err)
+			return err;
+
+		err = emit_num_constant(nc, token_data);
 		if (err)
 			return err;
 	}
@@ -784,7 +779,7 @@ TokenData *tokenize(CharBuffer *cb)
 	int string_literal_idx = 0;
 
 	char identifier_buffer[IDENTIFIER_MAX_LEN + 1];
-	memset(identifier_buffer, 0, IDENTIFIER_MAX_LEN+ 1);
+	memset(identifier_buffer, 0, IDENTIFIER_MAX_LEN + 1);
 	int identifier_buf_idx = 0;
 
 	while (cb_next(cb))
@@ -976,9 +971,7 @@ TokenData *tokenize(CharBuffer *cb)
 		}
 
 		// Numerical constants
-		// TODO: emit the constant
-		NumConstant nc;
-		int err = num_constant(cb, &nc);
+		int err = num_constant(cb, token_data);
 		if (err)
 			return NULL;
 		else
