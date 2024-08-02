@@ -652,6 +652,9 @@ static int read_constant(CharBuffer *cb, NumConstant *nc)
 		cb_next(cb);
 	}
 
+	// We make sure we dont accidentally consume the next char
+	cb_back(cb);
+
 	// check suffixes
 	int found_suffix = 0;
 	if (strlen(suffix_buffer) > 0)

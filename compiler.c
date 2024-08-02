@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <stdio.h>
 
+#include "debug_tokens.h"
 #include "lexer.h"
 
 int main(int argc, char *argv[])
@@ -44,11 +45,16 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	// debug info
-	printf("Emitted tokens:\n");
+		// debug info
+		printf("Emitted tokens:\n");
 	for (int i = 0; i < tok_data->_tok_idx; i++)
 	{
-		printf("%d ", tok_data->tokens[i]);
+		printf("%s ", debug_tokens[tok_data->tokens[i]]);
+		if (tok_data->tokens[i] == TOK_IDENTIFIER || tok_data->tokens[i] == TOK_CHAR_LITERAL ||
+		    tok_data->tokens[i] == TOK_NUMERICAL_CONSTANT || tok_data->tokens[i] == TOK_STRING_LITERAL)
+		{
+			i++;
+		}
 	}
 
 	printf("\n\nEmitted string literals:\n");
