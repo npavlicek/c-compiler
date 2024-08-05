@@ -1,52 +1,18 @@
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <llvm-c/Core.h>
 
 #include "debug_tokens.h"
 #include "lexer.h"
+#include "parser.h"
 
-int main(int argc, char *argv[])
+void print_debug_info(TokenData *tok_data)
 {
-	if (argc < 2)
-	{
-		printf("Error: please supply an input file\n");
-		return -1;
-	}
-
-	const char *const file_name = argv[1];
-	FILE *source_file = fopen(file_name, "r");
-
-	if (!source_file)
-	{
-		printf("Error: please supply a valid file name\n");
-		return -1;
-	}
-
-	// get file size
-	fseek(source_file, 0L, SEEK_END);
-	long file_size = ftell(source_file);
-	fseek(source_file, 0L, SEEK_SET);
-
-	if (file_size <= 0)
-	{
-		printf("Error: file is either too large or empty\n");
-		return -1;
-	}
-
-	// +1 for the NULL char
-	CharBuffer *cb = alloc_char_buffer(file_size + 1);
-
-	// -1 to not overwrite the NULL char
-	cb->_size = fread(cb->_buf, sizeof(char), cb->_max_size - 1, source_file);
-	fclose(source_file);
-
-	TokenData *tok_data = tokenize(cb);
-	if (!tok_data)
-	{
-		return -1;
-	}
-
-		// debug info
-		printf("Emitted tokens:\n");
+	// debug info
+	printf("Emitted tokens:\n");
 	for (int i = 0; i < tok_data->_tok_idx; i++)
 	{
 		printf("%s ", debug_tokens[tok_data->tokens[i]]);
@@ -90,15 +56,91 @@ int main(int argc, char *argv[])
 			i++;
 		}
 	}
+}
 
-	printf("\n\n# tokens: %d\n", tok_data->_tok_idx);
+int main(int argc, char *argv[])
+{
+	if (argc < 2)
+	{
+		printf("Error: please supply an input file\n");
+		return EXIT_FAILURE;
+	}
+
+	const char *const file_name = argv[1];
+	FILE *source_file = fopen(file_name, "r");
+
+	if (!source_file)
+	{
+		printf("Error: please supply a valid file name\n");
+		return EXIT_FAILURE;
+	}
+
+	// get file size
+	fseek(source_file, 0L, SEEK_END);
+	long file_size = ftell(source_file);
+	fseek(source_file, 0L, SEEK_SET);
+
+	if (file_size <= 0)
+	{
+		printf("Error: file is either too large or empty\n");
+		return EXIT_FAILURE;
+	}
+
+	// +1 for the NULL char
+	CharBuffer *cb = alloc_char_buffer(file_size + 1);
+
+	// -1 to not overwrite the NULL char
+	cb->_size = fread(cb->_buf, sizeof(char), cb->_max_size - 1, source_file);
+	fclose(source_file);
+
+	TokenData *tok_data = tokenize(cb);
+	if (!tok_data)
+	{
+		return EXIT_FAILURE;
+	}
+
+	printf("# tokens: %d\n", tok_data->_tok_idx);
 	printf("# string literals: %d\n", tok_data->_str_lit_idx);
 	printf("# identifiers: %d\n", tok_data->_ident_idx);
 	printf("# num constants: %d\n", tok_data->_num_const_idx);
 
-	free_token_data(tok_data);
+	unsigned ma, mi, pa;
+	LLVMGetVersion(&ma, &mi, &pa);
+	printf("\nUsing LLVM version: %d.%d.%d\n", ma, mi, pa);
 
+	char *module_name = calloc(strlen(file_name) + 1, sizeof(char));
+	strcpy(module_name, file_name);
+
+	module_name = strtok(module_name, ".");
+
+	LLVMModuleRef module = LLVMModuleCreateWithName(module_name);
+	LLVMSetSourceFileName(module, file_name, strlen(file_name));
+
+	free(module_name);
+
+	size_t module_id_len;
+	const char *module_id = LLVMGetModuleIdentifier(module, &module_id_len);
+
+	size_t module_source_file_name_len;
+	const char *module_source_file_name = LLVMGetSourceFileName(module, &module_source_file_name_len);
+
+	printf("LLVM Module Name: %s\n", module_id);
+	printf("LLVM Source File Name: %s\n", module_source_file_name);
+
+	ParserErrorCode err = parse(module, tok_data);
+	if (err != PARSER_NO_ERROR)
+	{
+		printf("Parser encountered a %s error! terminating...\n", ParserErrorStrings[err]);
+
+		return EXIT_FAILURE;
+	}
+
+	LLVMDisposeModule(module);
+
+	free_token_data(tok_data);
 	delete_char_buffer(cb);
 
-	return 0;
+	LLVMShutdown();
+
+	return EXIT_SUCCESS;
 }

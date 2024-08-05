@@ -196,10 +196,12 @@ static TokenData *alloc_token_data(int buf_max_size, int str_max_size, int str_l
 	res->_str_buf_max_size = str_max_size;
 	res->_str_lit_max_len = str_lit_max_len;
 	res->_ident_max_len = ident_max_len;
-	res->tokens = calloc(buf_max_size, sizeof(int));
+	res->tokens = malloc(buf_max_size * sizeof(Token));
+	memset(res->tokens, TOK_NO_TOKEN, buf_max_size);
 	res->identifiers = calloc(buf_max_size, sizeof(char *));
 	res->string_literals = calloc(str_max_size, sizeof(char *));
 	res->num_constants = calloc(buf_max_size, sizeof(NumConstant *));
+	res->line_numbers = calloc(buf_max_size, sizeof(int));
 	for (int i = 0; i < buf_max_size; i++)
 	{
 		res->identifiers[i] = calloc(ident_max_len, sizeof(char));
@@ -235,6 +237,7 @@ void free_token_data(TokenData *td)
 	{
 		free(td->string_literals[i]);
 	}
+	free(td->line_numbers);
 	free(td->tokens);
 	free(td->identifiers);
 	free(td->string_literals);
@@ -777,6 +780,8 @@ TokenData *tokenize(CharBuffer *cb)
 	int comment_block_mode = 0;
 	int string_literal_mode = 0;
 
+	int last_token_idx = 0;
+
 	char string_literal_buffer[STRING_LITERAL_MAX_LEN + 1];
 	memset(string_literal_buffer, 0, STRING_LITERAL_MAX_LEN + 1);
 	int string_literal_idx = 0;
@@ -797,6 +802,12 @@ TokenData *tokenize(CharBuffer *cb)
 		// detect if a new line is encountered
 		if (cb->cur_char == '\n' || cb->cur_char == '\r')
 		{
+			for (int i = last_token_idx; i < token_data->_tok_idx; i++)
+			{
+				token_data->line_numbers[i] = current_line;
+			}
+			last_token_idx = token_data->_tok_idx;
+
 			current_line++;
 		}
 
@@ -981,6 +992,11 @@ TokenData *tokenize(CharBuffer *cb)
 			continue;
 
 		printf("%c", cb->cur_char);
+	}
+
+	for (int i = last_token_idx; i < token_data->_tok_idx; i++)
+	{
+		token_data->line_numbers[i] = current_line;
 	}
 
 	return token_data;
